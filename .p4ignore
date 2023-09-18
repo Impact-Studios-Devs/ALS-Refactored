@@ -1,0 +1,35 @@
+*.pdb
+
+*.sln
+!*\*.sln
+.vs
+.idea
+*.suo
+*.opensdf
+*.sdf
+*.xcodeproj
+!*\*.xcodeproj
+.\Makefile
+.\CMakeLists.txt
+.\.ue4dependencies
+.git\*
+*.gitignore
+*.tmp
+.DS_Store
+ 
+ipch/
+
+# Project files
+/Intermediate/
+Intermediate
+
+/Build/
+/DerivedDataCache/
+/Saved/
+/Script/
+/Plugins/**/RiderLink/
+
+# Live reload files
+*.exp
+*.lib
+*.patch_*
