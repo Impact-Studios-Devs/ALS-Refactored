@@ -471,13 +471,15 @@ protected:
 	UFUNCTION(BlueprintNativeEvent, Category = "Als Character")
 	UAlsMantlingSettings* SelectMantlingSettings(EAlsMantlingType MantlingType);
 
+	float CalculateMantlingStartTime(const UAlsMantlingSettings* MantlingSettings, float MantlingHeight) const;
+
 	UFUNCTION(BlueprintNativeEvent, Category = "Als Character")
 	void OnMantlingStarted(const FAlsMantlingParameters& Parameters);
 
 private:
 	void RefreshMantling();
 
-	void StopMantling();
+	void StopMantling(bool bStopMontage = false);
 
 protected:
 	UFUNCTION(BlueprintNativeEvent, Category = "Als Character")

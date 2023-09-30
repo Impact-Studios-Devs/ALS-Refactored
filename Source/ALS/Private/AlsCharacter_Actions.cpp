@@ -3,9 +3,9 @@
 #include "AlsAnimationInstance.h"
 #include "AlsCharacterMovementComponent.h"
 #include "DrawDebugHelpers.h"
+#include "Animation/AnimSequence.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Curves/CurveFloat.h"
 #include "Curves/CurveVector.h"
 #include "Engine/NetConnection.h"
 #include "Net/Core/PushModel/PushModel.h"
@@ -404,14 +404,16 @@ void AAlsCharacter::StartMantlingImplementation(const FAlsMantlingParameters& Pa
 	auto* MantlingSettings{SelectMantlingSettings(Parameters.MantlingType)};
 
 	if (!ALS_ENSURE(IsValid(MantlingSettings)) ||
-	    !ALS_ENSURE(IsValid(MantlingSettings->BlendInCurve)) ||
+	    !ALS_ENSURE(IsValid(MantlingSettings->Montage)) ||
 	    !ALS_ENSURE(IsValid(MantlingSettings->InterpolationAndCorrectionAmountsCurve)))
 	{
 		return;
 	}
 
-	const auto StartTime{MantlingSettings->GetStartTimeByHeight(Parameters.MantlingHeight)};
-	const auto PlayRate{MantlingSettings->GetPlayRateByHeight(Parameters.MantlingHeight)};
+	const auto StartTime{CalculateMantlingStartTime(MantlingSettings, Parameters.MantlingHeight)};
+
+	const auto MontagePlayRate{MantlingSettings->Montage->RateScale};
+	const auto SettingsPlayRate{MantlingSettings->GetPlayRateByHeight(Parameters.MantlingHeight)};
 
 	// Calculate mantling duration.
 
@@ -444,50 +446,36 @@ void AAlsCharacter::StartMantlingImplementation(const FAlsMantlingParameters& Pa
 	GetCharacterMovement()->SetBase(Parameters.TargetPrimitive.Get());
 	AlsCharacterMovement->SetMovementModeLocked(true);
 
-	if (GetLocalRole() >= ROLE_Authority)
-	{
-		GetCharacterMovement()->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
+	GetCharacterMovement()->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
 
-		GetMesh()->SetRelativeLocationAndRotation(GetBaseTranslationOffset(),
-		                                          GetMesh()->IsUsingAbsoluteRotation()
-			                                          ? GetActorTransform().GetRotation() * GetBaseRotationOffset()
-			                                          : GetBaseRotationOffset());
-	}
+	GetMesh()->SetRelativeLocationAndRotation(GetBaseTranslationOffset(),
+	                                          GetMesh()->IsUsingAbsoluteRotation()
+		                                          ? GetActorTransform().GetRotation() * GetBaseRotationOffset()
+		                                          : GetBaseRotationOffset());
 
 	// Apply mantling root motion.
 
-	const auto Mantling{MakeShared<FAlsRootMotionSource_Mantling>()};
-	Mantling->InstanceName = __FUNCTION__;
-	Mantling->Duration = Duration / PlayRate;
-	Mantling->MantlingSettings = MantlingSettings;
-	Mantling->TargetPrimitive = bUseRelativeLocation ? Parameters.TargetPrimitive : nullptr;
-	Mantling->TargetRelativeLocation = Parameters.TargetRelativeLocation;
-	Mantling->TargetRelativeRotation = TargetRelativeRotation;
-	Mantling->ActorFeetLocationOffset = ActorFeetLocationOffset;
-	Mantling->ActorRotationOffset = ActorRotationOffset.Rotator();
-	Mantling->MantlingHeight = Parameters.MantlingHeight;
+	const auto RootMotionSource{MakeShared<FAlsRootMotionSource_Mantling>()};
+	RootMotionSource->InstanceName = __FUNCTION__;
+	RootMotionSource->Duration = Duration / (MontagePlayRate * SettingsPlayRate);
+	RootMotionSource->MantlingSettings = MantlingSettings;
+	RootMotionSource->TargetPrimitive = Parameters.TargetPrimitive;
+	RootMotionSource->TargetRelativeLocation = Parameters.TargetRelativeLocation;
+	RootMotionSource->TargetRelativeRotation = TargetRelativeRotation;
+	RootMotionSource->ActorFeetLocationOffset = ActorFeetLocationOffset;
+	RootMotionSource->ActorRotationOffset = ActorRotationOffset.Rotator();
+	RootMotionSource->MontageStartTime = StartTime;
+	RootMotionSource->MontagePlayRate = MontagePlayRate * SettingsPlayRate;
 
-	MantlingRootMotionSourceId = GetCharacterMovement()->ApplyRootMotionSource(Mantling);
+	MantlingRootMotionSourceId = GetCharacterMovement()->ApplyRootMotionSource(RootMotionSource);
 
 	// Play the animation montage if valid.
 
-	if (ALS_ENSURE(IsValid(MantlingSettings->Montage)))
+	if (GetMesh()->GetAnimInstance()->Montage_Play(MantlingSettings->Montage, SettingsPlayRate,
+	                                               EMontagePlayReturnType::MontageLength,
+	                                               StartTime, false))
 	{
-		// TODO Magic. I can't explain why, but this code fixes animation and root motion source desynchronization.
-
-		const auto MontageStartTime{
-			Parameters.MantlingType == EAlsMantlingType::InAir && IsLocallyControlled()
-				? StartTime - FMath::GetMappedRangeValueClamped(
-					  FVector2f{MantlingSettings->ReferenceHeight}, {GetWorld()->GetDeltaSeconds(), 0.0f}, Parameters.MantlingHeight)
-				: StartTime
-		};
-
-		if (GetMesh()->GetAnimInstance()->Montage_Play(MantlingSettings->Montage, PlayRate,
-		                                               EMontagePlayReturnType::MontageLength,
-		                                               MontageStartTime, false))
-		{
-			SetLocomotionAction(AlsLocomotionActionTags::Mantling);
-		}
+		SetLocomotionAction(AlsLocomotionActionTags::Mantling);
 	}
 
 	OnMantlingStarted(Parameters);
@@ -496,6 +484,68 @@ void AAlsCharacter::StartMantlingImplementation(const FAlsMantlingParameters& Pa
 UAlsMantlingSettings* AAlsCharacter::SelectMantlingSettings_Implementation(EAlsMantlingType MantlingType)
 {
 	return nullptr;
+}
+
+float AAlsCharacter::CalculateMantlingStartTime(const UAlsMantlingSettings* MantlingSettings, const float MantlingHeight) const
+{
+	if (!MantlingSettings->bAutoCalculateStartTime)
+	{
+		return MantlingSettings->GetStartTimeByHeight(MantlingHeight);
+	}
+
+	// https://landelare.github.io/2022/05/15/climbing-with-root-motion.html
+
+	if (!IsValid(MantlingSettings->Montage) || !ALS_ENSURE(MantlingSettings->Montage->CompositeSections.Num() > 0))
+	{
+		return 0.0f;
+	}
+
+	// We expect the mantling animation montage to consist of one section that spans the entire montage.
+
+	const auto& Section{MantlingSettings->Montage->GetAnimCompositeSection(0)};
+	const auto* Sequence{CastChecked<UAnimSequence>(Section.GetLinkedSequence())};
+
+	if (!ALS_ENSURE(IsValid(Sequence)))
+	{
+		return 0.0f;
+	}
+
+	const auto SequenceFrameRate{1.0f / Sequence->GetSamplingFrameRate().AsDecimal()};
+
+	auto SearchStartTime{0.0f};
+	auto SearchEndTime = Sequence->GetPlayLength();
+
+	// Find the vertical distance the character has already moved.
+
+	const auto TargetTransform{Sequence->ExtractRootTrackTransform(SearchEndTime, nullptr)};
+	const auto TargetLocationZ{FMath::Max(0.0f, TargetTransform.GetTranslation().Z - MantlingHeight)};
+
+	// Perform a binary search to find the time when the character is at the target vertical distance.
+
+	while (true)
+	{
+		const auto Time{(SearchStartTime + SearchEndTime) * 0.5f};
+
+		const auto Transform{Sequence->ExtractRootTrackTransform(Time, nullptr)};
+		const auto LocationZ{Transform.GetTranslation().Z};
+
+		// Stop the search if a close enough location has been found or if the search interval is less than the animation frame rate.
+
+		if (FMath::IsNearlyEqual(LocationZ, TargetLocationZ, UCharacterMovementComponent::MIN_FLOOR_DIST) ||
+		    SearchEndTime - SearchStartTime <= SequenceFrameRate)
+		{
+			return Time;
+		}
+
+		if (LocationZ < TargetLocationZ)
+		{
+			SearchStartTime = Time;
+		}
+		else
+		{
+			SearchEndTime = Time;
+		}
+	}
 }
 
 void AAlsCharacter::OnMantlingStarted_Implementation(const FAlsMantlingParameters& Parameters) {}
@@ -507,29 +557,49 @@ void AAlsCharacter::RefreshMantling()
 		return;
 	}
 
-	const auto RootMotionSource{GetCharacterMovement()->GetRootMotionSourceByID(MantlingRootMotionSourceId)};
+	const auto* RootMotionSource{
+		StaticCastSharedPtr<FAlsRootMotionSource_Mantling>(GetCharacterMovement()
+			->GetRootMotionSourceByID(MantlingRootMotionSourceId)).Get()
+	};
 
-	if (!RootMotionSource.IsValid() ||
+	if (RootMotionSource == nullptr ||
 	    RootMotionSource->Status.HasFlag(ERootMotionSourceStatusFlags::Finished) ||
-	    RootMotionSource->Status.HasFlag(ERootMotionSourceStatusFlags::MarkedForRemoval) ||
-	    (LocomotionAction.IsValid() && LocomotionAction != AlsLocomotionActionTags::Mantling) ||
-	    GetCharacterMovement()->MovementMode != MOVE_Custom)
+	    RootMotionSource->Status.HasFlag(ERootMotionSourceStatusFlags::MarkedForRemoval))
 	{
 		StopMantling();
-		ForceNetUpdate();
+		return;
+	}
+
+	if ((LocomotionAction.IsValid() && LocomotionAction != AlsLocomotionActionTags::Mantling) ||
+	    GetCharacterMovement()->MovementMode != MOVE_Custom)
+	{
+		StopMantling(true);
+		return;
+	}
+
+	if (!RootMotionSource->TargetPrimitive.IsValid())
+	{
+		StopMantling(true);
+
+		if (Settings->Mantling.bStartRagdollingOnTargetPrimitiveDestruction)
+		{
+			StartRagdolling();
+		}
 	}
 }
 
-void AAlsCharacter::StopMantling()
+void AAlsCharacter::StopMantling(const bool bStopMontage)
 {
 	if (MantlingRootMotionSourceId <= 0)
 	{
 		return;
 	}
 
-	const auto RootMotionSource{GetCharacterMovement()->GetRootMotionSourceByID(MantlingRootMotionSourceId)};
-
-	if (RootMotionSource.IsValid() &&
+	auto* RootMotionSource{
+		StaticCastSharedPtr<FAlsRootMotionSource_Mantling>(GetCharacterMovement()
+			->GetRootMotionSourceByID(MantlingRootMotionSourceId)).Get()
+	};
+	if (RootMotionSource != nullptr &&
 	    !RootMotionSource->Status.HasFlag(ERootMotionSourceStatusFlags::Finished) &&
 	    !RootMotionSource->Status.HasFlag(ERootMotionSourceStatusFlags::MarkedForRemoval))
 	{
@@ -538,15 +608,19 @@ void AAlsCharacter::StopMantling()
 
 	MantlingRootMotionSourceId = 0;
 
-	if (GetLocalRole() >= ROLE_Authority)
+	GetCharacterMovement()->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
+
+	if (bStopMontage)
 	{
-		GetCharacterMovement()->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
+		GetMesh()->GetAnimInstance()->Montage_Stop(Settings->Mantling.BlendOutDuration, RootMotionSource->MantlingSettings->Montage);
 	}
 
 	AlsCharacterMovement->SetMovementModeLocked(false);
 	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
 
 	OnMantlingEnded();
+
+	ForceNetUpdate();
 }
 
 void AAlsCharacter::OnMantlingEnded_Implementation() {}
@@ -612,9 +686,9 @@ void AAlsCharacter::StartRagdollingImplementation()
 
 	// Stop any active montages.
 
-	static constexpr auto BlendOutTime{0.2f};
+	static constexpr auto BlendOutDuration{0.2f};
 
-	GetMesh()->GetAnimInstance()->Montage_Stop(BlendOutTime);
+	GetMesh()->GetAnimInstance()->Montage_Stop(BlendOutDuration);
 
 	// When networked, disable replicate movement, reset ragdolling target location, and pull force variables.
 

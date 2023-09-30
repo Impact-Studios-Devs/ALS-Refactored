@@ -48,8 +48,12 @@ public:
 	TObjectPtr<UAnimMontage> Montage;
 
 	// Mantling time to blend in amount curve.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (ClampMin = 0, EditCondition = "!bUseMontageBlendIn"))
 	TObjectPtr<UCurveFloat> BlendInCurve;
+
+	// If checked, mantling will use the blend in curve from the animation montage instead of from this asset.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (ClampMin = 0))
+	bool bUseMontageBlendIn{true};
 
 	// Mantling time to interpolation, horizontal and vertical correction amounts curve.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
@@ -61,8 +65,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (ClampMin = 0))
 	FVector2f ReferenceHeight{50.0f, 100.0f};
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (ClampMin = 0))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (ClampMin = 0, EditCondition = "!bAutoCalculateStartTime"))
 	FVector2f StartTime{0.5f, 0.0f};
+
+	// If checked, mantling will automatically calculate the start time based on how much vertical
+	// distance the character needs to move to reach the object they are about to mantle.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (ClampMin = 0))
+	bool bAutoCalculateStartTime{false};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (ClampMin = 0))
 	FVector2f PlayRate{1.0f, 1.0f};
@@ -127,6 +136,14 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "ALS")
 	FCollisionResponseContainer MantlingTraceResponses{ECR_Ignore};
+
+	// Used when the mantling was interrupted and we need to stop the animation.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "s"))
+	float BlendOutDuration{0.3f};
+
+	// If checked, ragdolling will start if the object the character is mantling on was destroyed.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS")
+	bool bStartRagdollingOnTargetPrimitiveDestruction{true};
 
 public:
 #if WITH_EDITOR
