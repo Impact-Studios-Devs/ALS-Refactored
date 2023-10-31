@@ -12,10 +12,10 @@ struct ALS_API FAlsRootMotionSource_Mantling : public FRootMotionSource
 
 public:
 	UPROPERTY()
-	TObjectPtr<UAlsMantlingSettings> MantlingSettings{nullptr};
+	TObjectPtr<const UAlsMantlingSettings> MantlingSettings{nullptr};
 
 	UPROPERTY()
-	TWeakObjectPtr<UPrimitiveComponent> TargetPrimitive;
+	TWeakObjectPtr<const UPrimitiveComponent> TargetPrimitive;
 
 	UPROPERTY()
 	FVector TargetRelativeLocation{ForceInit};
@@ -29,11 +29,11 @@ public:
 	UPROPERTY()
 	FRotator ActorRotationOffset{ForceInit};
 
+	UPROPERTY()
+	FVector TargetAnimationLocation{ForceInit};
+
 	UPROPERTY(Meta = (ClampMin = 0, ForceUnits = "s"))
 	float MontageStartTime{0.0f};
-
-	UPROPERTY(Meta = (ClampMin = 0, ForceUnits = "x"))
-	float MontagePlayRate{0.0f};
 
 public:
 	FAlsRootMotionSource_Mantling();
