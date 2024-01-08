@@ -85,16 +85,21 @@ void AAlsCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 	DOREPLIFETIME_WITH_PARAMS_FAST(ThisClass, RagdollTargetLocation, Parameters)
 }
 
-void AAlsCharacter::PostRegisterAllComponents()
+void AAlsCharacter::PreRegisterAllComponents()
 {
-	Super::PostRegisterAllComponents();
-
-	// Set some default values here to ensure that the animation instance and the
-	// camera component can read the most up-to-date values during their initialization.
+	// Set some default values here so that the animation instance and the
+	// camera component can read the most up-to-date values during initialization.
 
 	RotationMode = bDesiredAiming ? AlsRotationModeTags::Aiming : DesiredRotationMode;
 	Stance = DesiredStance;
 	Gait = DesiredGait;
+
+	Super::PreRegisterAllComponents();
+}
+
+void AAlsCharacter::PostRegisterAllComponents()
+{
+	Super::PostRegisterAllComponents();
 
 	SetReplicatedViewRotation(Super::GetViewRotation().GetNormalized(), false);
 
@@ -365,6 +370,19 @@ void AAlsCharacter::RefreshMeshProperties() const
 	if (GetMesh()->IsUsingAbsoluteRotation() != bUseAbsoluteRotation)
 	{
 		GetMesh()->SetUsingAbsoluteRotation(bUseAbsoluteRotation);
+
+		// Instantly update the relative mesh rotation, otherwise it will be incorrect during this tick.
+
+		if (bUseAbsoluteRotation || !IsValid(GetMesh()->GetAttachParent()))
+		{
+			GetMesh()->SetRelativeRotation_Direct(
+				GetMesh()->GetRelativeRotationCache().QuatToRotator(GetMesh()->GetComponentQuat()));
+		}
+		else
+		{
+			GetMesh()->SetRelativeRotation_Direct(
+				GetMesh()->GetRelativeRotationCache().QuatToRotator(GetActorQuat().Inverse() * GetMesh()->GetComponentQuat()));
+		}
 	}
 
 	if (!bMeshIsTicking)
@@ -1055,6 +1073,11 @@ void AAlsCharacter::SetLocomotionAction(const FGameplayTag& NewLocomotionAction)
 
 void AAlsCharacter::NotifyLocomotionActionChanged(const FGameplayTag& PreviousLocomotionAction)
 {
+	if (!LocomotionAction.IsValid())
+	{
+		AlsCharacterMovement->SetInputBlocked(false);
+	}
+
 	ApplyDesiredStance();
 
 	OnLocomotionActionChanged(PreviousLocomotionAction);
@@ -1310,7 +1333,8 @@ void AAlsCharacter::RefreshLocomotionLocationAndRotation()
 	{
 		const auto SmoothTransform{
 			ActorTransform * FTransform{
-				GetMesh()->GetRelativeRotationCache().RotatorToQuat(GetMesh()->GetRelativeRotation()) * GetBaseRotationOffset().Inverse(),
+				GetMesh()->GetRelativeRotationCache().RotatorToQuat_ReadOnly(
+					GetMesh()->GetRelativeRotation()) * GetBaseRotationOffset().Inverse(),
 				GetMesh()->GetRelativeLocation() - GetBaseTranslationOffset()
 			}
 		};

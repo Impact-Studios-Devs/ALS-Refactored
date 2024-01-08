@@ -35,7 +35,7 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings|Als Character|Desired State",
 		ReplicatedUsing = "OnReplicated_DesiredAiming")
-	bool bDesiredAiming;
+	uint8 bDesiredAiming : 1;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings|Als Character|Desired State", Replicated)
 	FGameplayTag DesiredRotationMode{AlsRotationModeTags::ViewDirection};
@@ -115,6 +115,8 @@ public:
 #endif
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	virtual void PreRegisterAllComponents() override;
 
 	virtual void PostRegisterAllComponents() override;
 
@@ -515,6 +517,8 @@ protected:
 	// Ragdolling
 
 public:
+	const FAlsRagdollingState& GetRagdollingState() const;
+
 	bool IsRagdollingAllowedToStart() const;
 
 	UFUNCTION(BlueprintCallable, Category = "ALS|Character")
@@ -548,12 +552,9 @@ private:
 
 	void StopRagdollingImplementation();
 
-public:
-	void FinalizeRagdolling();
-
 protected:
 	UFUNCTION(BlueprintNativeEvent, Category = "Als Character")
-	UAnimMontage* SelectGetUpMontage(bool bRagdollFacedUpward);
+	UAnimMontage* SelectGetUpMontage(bool bRagdollFacingUpward);
 
 	UFUNCTION(BlueprintNativeEvent, Category = "Als Character")
 	void OnRagdollingEnded();
@@ -566,7 +567,9 @@ private:
 
 	void RefreshRagdolling(float DeltaTime);
 
-	void RefreshRagdollingActorTransform(float DeltaTime);
+	FVector RagdollTraceGround(bool& bGrounded) const;
+
+	void LimitRagdollSpeed() const;
 
 	// Debug
 
@@ -657,3 +660,9 @@ inline const FAlsLocomotionState& AAlsCharacter::GetLocomotionState() const
 {
 	return LocomotionState;
 }
+
+inline const FAlsRagdollingState& AAlsCharacter::GetRagdollingState() const
+{
+	return RagdollingState;
+}
+

@@ -45,7 +45,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
 	FRotator CameraRotation;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
+	UPROPERTY(BlueprintReadOnly, Category = "State", Transient)
 	TObjectPtr<UPrimitiveComponent> MovementBasePrimitive;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
@@ -64,7 +64,7 @@ protected:
 	float CameraFov{90.0f};
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
-	bool bRightShoulder{true};
+	uint8 bRightShoulder : 1 {true};
 
 public:
 	UAlsCameraComponent();
