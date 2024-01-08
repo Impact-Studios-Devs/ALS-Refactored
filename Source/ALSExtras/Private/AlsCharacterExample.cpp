@@ -8,11 +8,13 @@
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AlsCharacterExample)
 
-AAlsCharacterExample::AAlsCharacterExample()
+AAlsCharacterExample::AAlsCharacterExample(const class FObjectInitializer& ObjectInitializer)
 {
+	/*
 	Camera = CreateDefaultSubobject<UAlsCameraComponent>(FName{TEXTVIEW("Camera")});
 	Camera->SetupAttachment(GetMesh());
 	Camera->SetRelativeRotation_Direct({0.0f, 90.0f, 0.0f});
+	*/
 }
 
 void AAlsCharacterExample::NotifyControllerChanged()
@@ -23,7 +25,7 @@ void AAlsCharacterExample::NotifyControllerChanged()
 		auto* InputSubsystem{ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PreviousPlayer->GetLocalPlayer())};
 		if (IsValid(InputSubsystem))
 		{
-			InputSubsystem->RemoveMappingContext(InputMappingContext);
+			//InputSubsystem->RemoveMappingContext(InputMappingContext);
 		}
 	}
 
@@ -40,7 +42,7 @@ void AAlsCharacterExample::NotifyControllerChanged()
 			FModifyContextOptions Options;
 			Options.bNotifyUserSettings = true;
 
-			InputSubsystem->AddMappingContext(InputMappingContext, 0, Options);
+			//InputSubsystem->AddMappingContext(InputMappingContext, 0, Options);
 		}
 	}
 

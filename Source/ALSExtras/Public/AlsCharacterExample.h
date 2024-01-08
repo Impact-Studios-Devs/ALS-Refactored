@@ -74,7 +74,7 @@ protected:
 	float LookRightRate{240.0f};
 
 public:
-	AAlsCharacterExample();
+	AAlsCharacterExample(const class FObjectInitializer& ObjectInitializer);
 
 	virtual void NotifyControllerChanged() override;
 
